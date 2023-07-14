@@ -9,6 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 let allPages: string[] = [];
+let allPagesFoundDuringScraping: string[] = [];
 
 async function scrapeAllHrefs(url: string) {
   const browser = await puppeteer.launch(
@@ -39,12 +40,15 @@ async function scrapeAllHrefs(url: string) {
 }
 
 async function scrapePage(url: string) {
+
   // Define the file path
   const filePath = path.resolve(__dirname, 'data', `${new URL(url).pathname.replace(/\//g, '-')}.json`);
 
   // Check if the file already exists
   if (fs.existsSync(filePath)) {
     console.log(`Data for ${url} already exists. Skipping...`);
+    // remove the already scraped page from the allPages array
+    allPages = allPages.filter(page => page !== url);
     return;
   }
 
@@ -55,6 +59,22 @@ async function scrapePage(url: string) {
   const page = await browser.newPage();
 
   await page.goto(url);
+
+  // Collect all hrefs on the page that start with "https://gorillazforbeginners.com/"
+  const hrefs = await page.evaluate(() => {
+    const links: HTMLAnchorElement[] = Array.from(document.querySelectorAll('a'));
+    return links.map(link => link.href).filter(href => href.startsWith('https://gorillazforbeginners.com/'));
+  });
+
+  const cleanedHrefs: string[] = Array.from(new Set(hrefs.map(href => {
+    const parsedHref = new URL(href);
+    parsedHref.search = '';
+    parsedHref.hash = '';
+    return parsedHref.toString();
+  })));
+
+  // Add new pages to the 'allPagesFoundDuringScraping' array
+  allPagesFoundDuringScraping = [...allPagesFoundDuringScraping, ...cleanedHrefs];
 
   // Collect all image URLs on the page
   const imageUrls = await page.evaluate(() => {
@@ -82,6 +102,12 @@ for (const page of allPages) {
 
   // Scrape each page
   await scrapePage(page);
+
+  // Check if there are any new pages to scrape
+  if (allPagesFoundDuringScraping.length > 0) {
+    allPages = [...allPages, ...allPagesFoundDuringScraping];
+    allPagesFoundDuringScraping = [];
+  }
 
   // announce end of scraping
   console.log(`Finished scrapping ${page}!`);
